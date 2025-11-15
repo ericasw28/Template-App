@@ -1,4 +1,4 @@
-# Azure AD SSO Template for Streamlit
+# Template for Streamlit
 
 A production-ready Streamlit application template with Azure Active Directory Single Sign-On (SSO) authentication. This template features a clean, modular architecture that separates authentication logic from UI components.
 
