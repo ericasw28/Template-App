@@ -1,0 +1,33 @@
+# Streamlit Configuration
+# For production, update server settings accordingly
+
+[server]
+# For local development
+port = 8501
+# For production, disable CORS and enable XSRF protection
+enableCORS = false
+enableXsrfProtection = true
+maxUploadSize = 200
+runOnSave = true
+
+[browser]
+# Disable telemetry for production
+gatherUsageStats = false
+
+[logger]
+# Set to "info" for production, "debug" for development
+level = "info"
+
+[theme]
+base = "dark"
+primaryColor = "#0066ff"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#e5f0ff"
+textColor = "#182c4b"
+font = "sans-serif"
+
+[theme.sidebar]
+primaryColor = "#0066ff"
+backgroundColor = "#000917"
+secondaryBackgroundColor = "#123B78"
+textColor = "#f6f6f6"
