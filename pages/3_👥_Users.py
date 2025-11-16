@@ -1,21 +1,21 @@
 """
-Users Management Page - Admin Only
+Users Management Page - Admin Only (Read-Only Dashboard)
 
-This page allows administrators to manage users and their roles.
+This page displays users and their roles from Azure AD.
+Role management is done in Azure AD portal (Enterprise Applications).
 Only accessible to users with the Admin role.
 """
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from SSO import (
     init_session_state,
     render_authenticated_header,
     Role,
-    require_role,
-    get_user_roles,
-    render_role_badge
+    require_role
 )
+from SSO.graph_api import get_cached_users, is_graph_api_configured
 
 
 @require_role(Role.ADMIN)
@@ -36,175 +36,145 @@ def main():
     st.divider()
 
     # Admin notice
-    st.info("🔐 **Admin Access** - This page is only visible to administrators.")
+    st.info("🔐 **Admin Access** - This page displays users from Azure AD. Role management is done in Azure AD portal.")
 
     st.divider()
 
-    # Page description
-    st.write("""
-    Manage user accounts, roles, and permissions.
-    This is a demonstration page showing how role-based access control works.
-    """)
+    # Check if Graph API is configured
+    if not is_graph_api_configured():
+        st.warning("⚠️ **Graph API Not Configured**")
+        st.write("""
+        To display real user data, you need to configure Microsoft Graph API permissions.
 
-    st.divider()
+        **Setup Steps:**
+        1. Go to Azure AD → App registrations → Your App → API permissions
+        2. Add permissions: `User.Read.All` and `Application.Read.All`
+        3. Grant admin consent for your organization
+
+        For now, showing sample data.
+        """)
+        display_sample_data()
+        return
+
+    # Fetch real users from Azure AD
+    with st.spinner("Loading users from Azure AD..."):
+        users = get_cached_users(top=100)
+
+    if not users:
+        st.error("❌ Failed to fetch users from Azure AD")
+        st.write("Possible reasons:")
+        st.write("- Graph API permissions not granted")
+        st.write("- Admin consent not provided")
+        st.write("- Network connectivity issues")
+        st.divider()
+        st.write("**Showing sample data instead:**")
+        display_sample_data()
+        return
+
+    # Display real user data
+    display_real_users(users)
+
+
+def display_real_users(users):
+    """Display real users from Azure AD."""
 
     # User Statistics
     st.subheader("📊 User Statistics")
 
     col1, col2, col3, col4 = st.columns(4)
 
+    active_users = [u for u in users if u.get("accountEnabled", False)]
+
     with col1:
         st.metric(
             "Total Users",
-            "47",
-            delta="3 this week",
-            help="Total registered users in the system"
+            len(users),
+            help="Total users in Azure AD"
         )
 
     with col2:
         st.metric(
             "Active Users",
-            "42",
-            delta="89%",
-            help="Users active in the last 30 days"
+            len(active_users),
+            delta=f"{int(len(active_users)/len(users)*100)}%",
+            help="Users with enabled accounts"
         )
 
     with col3:
         st.metric(
-            "Admins",
-            "3",
-            help="Users with Admin role"
+            "Disabled",
+            len(users) - len(active_users),
+            help="Users with disabled accounts"
         )
 
     with col4:
-        st.metric(
-            "Pending Invites",
-            "5",
-            help="Outstanding user invitations"
-        )
+        # Link to Azure AD
+        if st.button("🔗 Open Azure AD Portal", use_container_width=True):
+            st.link_button(
+                "Go to Enterprise Applications",
+                "https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview",
+                use_container_width=True
+            )
 
     st.divider()
 
-    # User Management Section
+    # User Directory
     st.subheader("👥 User Directory")
 
-    # Add user button
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Search and filter
+    col1, col2 = st.columns([3, 1])
 
     with col1:
         search_query = st.text_input("🔍 Search users", placeholder="Search by name or email...")
 
     with col2:
-        role_filter = st.selectbox(
-            "Filter by Role",
-            ["All Roles", "Admin", "Superuser", "User"]
-        )
-
-    with col3:
-        st.write("")  # Spacing
-        st.write("")  # Spacing
-        if st.button("➕ Add New User", type="primary", use_container_width=True):
-            st.info("Add user feature would open a dialog to create/invite a new user")
+        show_disabled = st.checkbox("Show disabled accounts", value=False)
 
     st.divider()
 
-    # Sample users data
-    users_data = pd.DataFrame({
-        'Name': [
-            'Alice Johnson',
-            'Bob Smith',
-            'Carol Williams',
-            'David Brown',
-            'Eve Davis',
-            'Frank Miller',
-            'Grace Wilson',
-            'Henry Moore'
-        ],
-        'Email': [
-            'alice.johnson@company.com',
-            'bob.smith@company.com',
-            'carol.williams@company.com',
-            'david.brown@company.com',
-            'eve.davis@company.com',
-            'frank.miller@company.com',
-            'grace.wilson@company.com',
-            'henry.moore@company.com'
-        ],
-        'Role': [
-            'Admin',
-            'Admin',
-            'Superuser',
-            'Superuser',
-            'User',
-            'User',
-            'User',
-            'User'
-        ],
-        'Last Login': [
-            '2 hours ago',
-            '5 hours ago',
-            '1 day ago',
-            '3 days ago',
-            '1 week ago',
-            '2 weeks ago',
-            '3 weeks ago',
-            '1 month ago'
-        ],
-        'Status': [
-            'Active',
-            'Active',
-            'Active',
-            'Active',
-            'Active',
-            'Inactive',
-            'Inactive',
-            'Active'
+    # Filter users
+    filtered_users = users
+
+    if not show_disabled:
+        filtered_users = [u for u in filtered_users if u.get("accountEnabled", False)]
+
+    if search_query:
+        search_lower = search_query.lower()
+        filtered_users = [
+            u for u in filtered_users
+            if search_lower in u.get("displayName", "").lower()
+            or search_lower in u.get("mail", "").lower()
+            or search_lower in u.get("userPrincipalName", "").lower()
         ]
-    })
 
-    # Display users in a more interactive way
-    for idx, user in users_data.iterrows():
-        with st.container():
-            col1, col2, col3, col4, col5 = st.columns([3, 3, 2, 2, 2])
+    # Display users in table format
+    if filtered_users:
+        # Create DataFrame
+        users_df = pd.DataFrame([
+            {
+                "Display Name": u.get("displayName", "N/A"),
+                "Email": u.get("mail") or u.get("userPrincipalName", "N/A"),
+                "Status": "✅ Active" if u.get("accountEnabled") else "❌ Disabled",
+                "User ID": u.get("id", "N/A")
+            }
+            for u in filtered_users
+        ])
 
-            with col1:
-                st.write(f"**{user['Name']}**")
+        st.dataframe(
+            users_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Display Name": st.column_config.TextColumn("Name", width="medium"),
+                "Email": st.column_config.TextColumn("Email", width="large"),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "User ID": st.column_config.TextColumn("Azure AD ID", width="medium"),
+            }
+        )
 
-            with col2:
-                st.write(user['Email'])
-
-            with col3:
-                # Role badge with color coding
-                role_colors = {
-                    'Admin': '#FF4B4B',
-                    'Superuser': '#FFA500',
-                    'User': '#0068C9'
-                }
-                color = role_colors.get(user['Role'], '#666666')
-                st.markdown(f"""
-                    <div style="
-                        display: inline-block;
-                        padding: 4px 12px;
-                        background-color: {color};
-                        color: white;
-                        border-radius: 12px;
-                        font-size: 12px;
-                        font-weight: bold;
-                    ">
-                        {user['Role'].upper()}
-                    </div>
-                """, unsafe_allow_html=True)
-
-            with col4:
-                status_icon = "🟢" if user['Status'] == 'Active' else "🔴"
-                st.write(f"{status_icon} {user['Status']}")
-
-            with col5:
-                if st.button("Edit", key=f"edit_{idx}", use_container_width=True):
-                    st.info(f"Edit dialog for {user['Name']} would open here")
-
-            st.caption(f"Last login: {user['Last Login']}")
-            st.divider()
+        st.caption(f"Showing {len(filtered_users)} of {len(users)} users")
+    else:
+        st.info("No users match your search criteria")
 
     st.divider()
 
@@ -214,100 +184,139 @@ def main():
     col1, col2 = st.columns(2)
 
     with col1:
+        st.write("**How to Assign Roles**")
+
+        st.write("""
+        1. Go to [Azure Portal](https://portal.azure.com)
+        2. Navigate to **Azure AD** → **Enterprise applications**
+        3. Find and select your application
+        4. Click **Users and groups**
+        5. Click **+ Add user/group**
+        6. Select user and assign role (Admin, Superuser, or User)
+        """)
+
+        if st.button("📖 View Full Documentation", use_container_width=True):
+            st.info("See AZURE_AD_RBAC_SETUP.md for detailed instructions")
+
+    with col2:
         st.write("**Role Definitions**")
 
         roles_info = {
-            "Admin": {
-                "description": "Full system access including user management",
+            "🔴 Admin": {
                 "permissions": ["View Analytics", "View Settings", "Manage Users", "Edit Settings"],
-                "count": 3
+                "description": "Full system access"
             },
-            "Superuser": {
-                "description": "Access to all features except user management",
+            "🟠 Superuser": {
                 "permissions": ["View Analytics", "View Settings", "Edit Settings"],
-                "count": 2
+                "description": "All features except user management"
             },
-            "User": {
-                "description": "Standard user with limited access",
+            "🔵 User": {
                 "permissions": ["View Analytics"],
-                "count": 42
+                "description": "Limited access"
             }
         }
 
         for role_name, info in roles_info.items():
-            with st.expander(f"{role_name} ({info['count']} users)"):
-                st.write(f"**Description:** {info['description']}")
+            with st.expander(role_name):
+                st.write(f"**{info['description']}**")
                 st.write("**Permissions:**")
                 for perm in info['permissions']:
                     st.write(f"- ✅ {perm}")
 
-    with col2:
-        st.write("**Quick Actions**")
-
-        if st.button("📊 Generate User Report", use_container_width=True):
-            st.success("User report generated! Download link would appear here.")
-
-        if st.button("📧 Send Bulk Invitation", use_container_width=True):
-            st.info("Bulk invitation dialog would open here")
-
-        if st.button("🔄 Sync with Azure AD", use_container_width=True):
-            with st.spinner("Syncing with Azure AD..."):
-                import time
-                time.sleep(2)
-                st.success("✅ Sync completed! All roles are up to date.")
-
-        if st.button("📜 View Audit Log", use_container_width=True):
-            st.info("Audit log viewer would open here")
-
     st.divider()
 
-    # Recent Activity
-    st.subheader("📋 Recent User Activity")
+    # Quick Actions
+    st.subheader("🔗 Quick Links")
 
-    activity_data = pd.DataFrame({
-        'Timestamp': pd.date_range(end=datetime.now(), periods=8, freq='H')[::-1],
-        'User': [
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.link_button(
+            "🏢 Enterprise Applications",
+            "https://portal.azure.com/#view/Microsoft_AAD_IAM/StartboardApplicationsMenuBlade/~/AppAppsPreview",
+            use_container_width=True,
+            help="Manage app role assignments"
+        )
+
+    with col2:
+        st.link_button(
+            "👥 Azure AD Users",
+            "https://portal.azure.com/#view/Microsoft_AAD_UsersAndTenants/UserManagementMenuBlade/~/AllUsers",
+            use_container_width=True,
+            help="View all Azure AD users"
+        )
+
+    with col3:
+        st.link_button(
+            "📊 App Roles",
+            "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/AppRoles",
+            use_container_width=True,
+            help="Manage app role definitions"
+        )
+
+    # Footer
+    st.divider()
+    st.caption(f"📅 Last refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption("💡 **Note**: User data is cached for 5 minutes. Click browser refresh to update.")
+    st.caption("🔒 **Security**: This page only displays data. All role assignments must be done in Azure AD portal.")
+
+
+def display_sample_data():
+    """Display sample data when Graph API is not configured."""
+
+    st.subheader("📊 Sample Data")
+    st.caption("This is demonstration data. Configure Graph API to see real users.")
+
+    # Sample users
+    sample_users = pd.DataFrame({
+        'Display Name': [
+            'Alice Johnson',
+            'Bob Smith',
+            'Carol Williams',
+            'David Brown',
+            'Eve Davis'
+        ],
+        'Email': [
             'alice.johnson@company.com',
             'bob.smith@company.com',
             'carol.williams@company.com',
-            'alice.johnson@company.com',
             'david.brown@company.com',
-            'eve.davis@company.com',
-            'bob.smith@company.com',
-            'frank.miller@company.com'
+            'eve.davis@company.com'
         ],
-        'Action': [
-            'User role changed',
-            'Login',
-            'Login',
-            'New user created',
-            'Settings updated',
-            'Login',
-            'Password reset',
-            'Account activated'
+        'Role': [
+            '🔴 Admin',
+            '🔴 Admin',
+            '🟠 Superuser',
+            '🟠 Superuser',
+            '🔵 User'
         ],
-        'Performed By': [
-            'alice.johnson@company.com',
-            'System',
-            'System',
-            'alice.johnson@company.com',
-            'david.brown@company.com',
-            'System',
-            'bob.smith@company.com',
-            'alice.johnson@company.com'
+        'Status': [
+            '✅ Active',
+            '✅ Active',
+            '✅ Active',
+            '✅ Active',
+            '✅ Active'
         ]
     })
 
     st.dataframe(
-        activity_data,
+        sample_users,
         use_container_width=True,
         hide_index=True
     )
 
-    # Footer
     st.divider()
-    st.caption(f"📅 Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    st.caption("💡 **Note**: This is a demonstration page. In production, this would integrate with your actual user management system.")
+
+    st.info("""
+    **To see real data:**
+
+    1. Configure Graph API permissions in Azure AD
+    2. Add `User.Read.All` permission
+    3. Grant admin consent
+    4. Restart the app
+
+    See `GRAPH_API_SETUP.md` for detailed instructions.
+    """)
 
 
 if __name__ == "__main__":
